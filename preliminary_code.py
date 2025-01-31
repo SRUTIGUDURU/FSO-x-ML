@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 
 def kolmogorov_turbulence(grid_size, r0):
     """Generates a Kolmogorov turbulence phase screen."""
-    delta = 1.0
-    k = np.fft.fftfreq(grid_size, delta)
+    k = np.fft.fftfreq(grid_size, d=(2 * r0) / grid_size)
     Kx, Ky = np.meshgrid(k, k)
-    K = np.sqrt(Kx**2 + Ky**2 + 1e-10)
+    K = np.sqrt(Kx**2 + Ky**2)
+    K[K == 0] = np.min(K[K > 0])
     kolmogorov_spectrum = (K**(-11/3)) * np.exp(-K**2 * r0**2)
     random_phase = (np.random.normal(size=(grid_size, grid_size)) +
                     1j * np.random.normal(size=(grid_size, grid_size)))
@@ -77,7 +77,7 @@ def field_all_plot(save_plots=False):
 
     """Applying Kolmogorov turbulence"""
     turbulence_screen = kolmogorov_turbulence(b, r0)
-    turbulent_field = attenuated_field * np.exp(1j * turbulence_screen)
+    turbulent_field = attenuated_field * np.exp(1j * 2 * np.pi * turbulence_screen)
     plot_field(turbulent_field, c, "Turbulent & Attenuated OAM Phase", "Turbulent & Attenuated OAM Intensity",
                figure_number=3, save_filename="turbulent_attenuated_field.png" if save_plots else None)
 
