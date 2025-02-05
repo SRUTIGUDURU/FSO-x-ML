@@ -12,8 +12,12 @@ def kolmogorov_turbulence(grid_size, r0):
     turbulence_screen = np.fft.ifft2(
         np.fft.ifftshift(np.sqrt(kolmogorov_spectrum) * random_phase)
     ).real
-
-    return turbulence_screen
+    
+    """Normalize turbulence and create amplitude distortions"""
+    turbulence_screen = turbulence_screen / np.max(np.abs(turbulence_screen))
+    """Adding small amplitude fluctuations"""
+    amplitude_variation = 1 + 0.2 * turbulence_screen
+    return turbulence_screen, amplitude_variation
 
 
 def attenuation(grid_size, attenuation_factor, r_max):
@@ -22,11 +26,13 @@ def attenuation(grid_size, attenuation_factor, r_max):
     X, Y = np.meshgrid(x, y)
     radial_distance = np.sqrt(X**2 + Y**2)
     attenuation = np.exp(-attenuation_factor * (radial_distance / r_max)**2)
+    
+    """Introducing additional randomness to mimic real-world attenuation"""
+    attenuation *= (0.9 + 0.1 * np.random.rand(grid_size, grid_size))
     return attenuation
 
 
 def simulate_oam(l, grid_size, r_max):
-    """Generates an OAM field with topological charge `l`."""
     x = np.linspace(-r_max, r_max, grid_size)
     y = np.linspace(-r_max, r_max, grid_size)
     X, Y = np.meshgrid(x, y)
@@ -36,6 +42,7 @@ def simulate_oam(l, grid_size, r_max):
     gaussian_envelope = np.exp((-radial_distance**2) / ((r_max / 3) ** 2))
     oam_mode = helical_phase * gaussian_envelope
     return oam_mode
+
 
 def plot_field_separate(field, r_max, title_phase, title_intensity):
     plt.figure(figsize=(6, 6))
@@ -54,6 +61,7 @@ def plot_field_separate(field, r_max, title_phase, title_intensity):
     plt.colorbar(label="Intensity")
     plt.show(block=False)
 
+
 def field_all_plot():
     a = int(input("Enter topological charge (l): "))
     b = int(input("Enter grid size (positive integer): "))
@@ -62,7 +70,7 @@ def field_all_plot():
     attenuation_factor = float(input("Enter attenuation factor (positive value): "))
     
     oam_field = simulate_oam(a, b, c)
-    turbulence_screen = kolmogorov_turbulence(b, r0)
+    turbulence_screen, amplitude_variation = kolmogorov_turbulence(b, r0)
     attenuation_field = attenuation(b, attenuation_factor, c)
     
     plot_field_separate(oam_field, c, "OAM Phase", "OAM Intensity")
@@ -70,7 +78,7 @@ def field_all_plot():
     plot_field_separate(attenuation_field, c, "Attenuation Phase", "Attenuation Intensity")
     
     attenuated_oam = oam_field * attenuation_field
-    turbulent_oam = oam_field * np.exp(1j * 2 * np.pi * turbulence_screen)
+    turbulent_oam = oam_field * np.exp(1j * 2 * np.pi * turbulence_screen) * amplitude_variation
     turbulent_attenuated_oam = turbulent_oam * attenuation_field
     
     plot_field_separate(attenuated_oam, c, "OAM with Attenuation Phase", "OAM with Attenuation Intensity")
