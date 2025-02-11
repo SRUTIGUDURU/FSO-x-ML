@@ -26,21 +26,21 @@ pip install numpy matplotlib
 
 If you’re using an Apple Mac with an M1/M2/M3 chip and want to utilize the Metal GPU backend:
 
-“bash
+```bash
 pip install jax jaxlib –no-cache-dir
-“
+```
 
 For CUDA (NVIDIA GPU) acceleration, install JAX with CUDA support (ensure CUDA and cuDNN are properly set up):
 
-“bash
+```bash
 pip install jax jaxlib -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-“
+```
 
 For CPU-only usage:
 
-“bash
+```bash
 pip install jax jaxlib
-“
+```
 
 ### Installing CuPy (for NVIDIA GPU Acceleration)
 
@@ -48,15 +48,15 @@ If you have an NVIDIA GPU with CUDA installed, install CuPy for GPU-accelerated 
 
 For CUDA 12 (Latest)
 
-“bash
+```bash
 pip install cupy-cuda12x
-“
+```
 
 For CUDA 11
 
-“bash
+```bash
 pip install cupy-cuda11x
-“
+```
 
 Clone the repository:
 
