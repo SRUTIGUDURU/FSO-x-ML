@@ -58,7 +58,9 @@ For CUDA 11
 pip install cupy-cuda11x
 ```
 
-Clone the repository:
+### Clone the repository:
+
+Run this code to clone the repository
 
 ```bash
 git clone https://github.com/Aravind-Sathesh/FSO-x-ML.git
