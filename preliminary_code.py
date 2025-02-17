@@ -1,25 +1,22 @@
 import os
 import numpy as np
+import jax
+import jax.numpy as jnp
 import jax.random as jax_rand
 import matplotlib.pyplot as plt
 
-# Auto-detect and select the best library
 try:
-    import cupy as xp  # Try CuPy first (CUDA GPU)
-    backend = "CuPy (GPU)"
+    xp = jnp  # JAX for computations
+    random_generator = jax_rand  # JAX random functions
+    print("Using JAX for computations.")
 except ImportError:
-    try:
-        import jax.numpy as xp  # Try JAX (Apple Metal GPU)
-        backend = "JAX (Metal GPU)"
-    except ImportError:
-        import numpy as xp  # Default to NumPy (CPU)
-        backend = "NumPy (CPU)"
-
-print(f"Using {backend} for computations.")
+    xp = np  # Fallback to NumPy
+    random_generator = np.random
+    print("JAX not found. Falling back to NumPy.")
 
 
 def simulate_oam(l, grid_size, r_max):
-    """Dummy function to simulate an OAM field."""
+    """Generates an OAM field with topological charge l."""
     x = xp.linspace(-1, 1, grid_size) * r_max
     y = xp.linspace(-1, 1, grid_size) * r_max
     X, Y = xp.meshgrid(x, y)
@@ -27,8 +24,8 @@ def simulate_oam(l, grid_size, r_max):
     return xp.exp(1j * l * phase)
 
 
-def kolmogorov_turbulence(grid_size, r0, model="kolmogorov"):
-    """Generates turbulence screen based on Kolmogorov or von Kármán model."""
+def kolmogorov_turbulence(grid_size, r0, distance, key, model="kolmogorov"):
+    """Generates a turbulence phase screen with stronger effects over distance."""
     k = np.fft.fftfreq(grid_size, d=1.0)
     Kx, Ky = xp.meshgrid(k, k)
     K = xp.sqrt(Kx**2 + Ky**2)
@@ -43,41 +40,51 @@ def kolmogorov_turbulence(grid_size, r0, model="kolmogorov"):
         raise ValueError(
             "Invalid turbulence model. Use 'kolmogorov' or 'von_karman'.")
 
-    if backend == "JAX (Metal GPU)":
-        key, subkey = jax_rand.split(jax_rand.PRNGKey(0))
-        random_values = jax_rand.uniform(subkey, (grid_size, grid_size))
-    else:
-        random_values = xp.random.rand(grid_size, grid_size)
+    turbulence_strength = 0.1 * distance  # Increase phase distortion over distance
+
+    # Generate JAX random values
+    key, subkey = jax_rand.split(key)
+    random_values = jax_rand.uniform(subkey, (grid_size, grid_size))
+
     random_phase = xp.exp(1j * 2 * xp.pi * random_values)
     turbulence_screen = xp.fft.ifft2(
         xp.fft.ifftshift(xp.sqrt(spectrum) * random_phase)
     ).real
+
+    # Normalize & amplify effects
     turbulence_screen /= xp.max(xp.abs(turbulence_screen))
-    amplitude_variation = 1 + 0.2 * turbulence_screen
+    turbulence_screen *= turbulence_strength
+
+    # Add Gaussian noise
+    key, subkey = jax_rand.split(key)
+    turbulence_screen += 0.05 * jax_rand.normal(subkey, (grid_size, grid_size))
+
+    amplitude_variation = 1 + 0.3 * turbulence_screen  # Increased effect
     return turbulence_screen, amplitude_variation
 
 
-def attenuation(grid_size, attenuation_factor, r_max):
-    """Generates an attenuation mask based on radial distance."""
+def attenuation(grid_size, attenuation_factor, r_max, distance, key):
+    """Generates an attenuation mask with stronger effects over distance."""
     x = xp.linspace(-1, 1, grid_size) * r_max
     y = xp.linspace(-1, 1, grid_size) * r_max
     X, Y = xp.meshgrid(x, y)
     radial_distance = xp.sqrt(X**2 + Y**2)
-    attenuation = xp.exp(-attenuation_factor * (radial_distance / r_max) ** 2)
 
-    # Adding randomness
-    if backend == "JAX (Metal GPU)":
-        key, subkey = jax_rand.split(jax_rand.PRNGKey(1))  # Fix key issue
-        random_values = jax_rand.uniform(subkey, (grid_size, grid_size))
-    else:
-        random_values = xp.random.rand(grid_size, grid_size)
-    attenuation *= (0.9 + 0.1 * random_values)
+    # Exponential decay with distance
+    attenuation = xp.exp(-attenuation_factor *
+                         (radial_distance / r_max) ** 2 * distance)
+
+    # Generate JAX random values
+    key, subkey = jax_rand.split(key)
+    random_values = jax_rand.uniform(subkey, (grid_size, grid_size))
+
+    attenuation *= (0.8 + 0.2 * random_values)  # Stronger randomness
     return attenuation
 
 
 def plot_field(field, r_max, title, cmap='hsv'):
     """Plots phase and intensity of the given complex field."""
-    field_cpu = np.array(field)  # Works for JAX, NumPy, and CuPy
+    field_cpu = np.array(field)  # Convert for visualization
 
     plt.figure(figsize=(6, 6))
     plt.imshow(np.angle(field_cpu),
@@ -98,21 +105,24 @@ def plot_field(field, r_max, title, cmap='hsv'):
     plt.show(block=False)
 
 
-def generate_and_save_data(l, grid_size, r_max, r0, attenuation_factor, turbulence_model="kolmogorov", save_path="saved_fields"):
-    """Generates and saves OAM fields with different distortions."""
+def generate_and_save_data(l, grid_size, r_max, r0, attenuation_factor, distance, turbulence_model="kolmogorov", save_path="saved_fields"):
+    """Generates OAM fields with turbulence & attenuation effects."""
 
     save_path = os.path.join(os.getcwd(), save_path)
     os.makedirs(save_path, exist_ok=True)
+
+    key = jax_rand.PRNGKey(0)  # JAX random key
 
     print("Generating OAM field...")
     oam_field = simulate_oam(l, grid_size, r_max)
 
     print("Generating turbulence...")
     turbulence_screen, amplitude_variation = kolmogorov_turbulence(
-        grid_size, r0, model=turbulence_model)
+        grid_size, r0, distance, key, model=turbulence_model)
 
     print("Generating attenuation field...")
-    attenuation_field = attenuation(grid_size, attenuation_factor, r_max)
+    attenuation_field = attenuation(
+        grid_size, attenuation_factor, r_max, distance, key)
 
     print("Applying distortions...")
     attenuated_oam = oam_field * attenuation_field
@@ -144,10 +154,11 @@ def main():
     r_max = 1  # Max radius
     r0 = 0.1  # Fried parameter (turbulence strength)
     attenuation_factor = 2.0  # Attenuation strength
-    turbulence_model = "von_karman"  # Use 'kolmogorov' or 'von_karman'
+    distance = 2  # Distance in meters
+    turbulence_model = "von_karman"  # 'kolmogorov' or 'von_karman'
 
     generate_and_save_data(l, grid_size, r_max, r0,
-                           attenuation_factor, turbulence_model)
+                           attenuation_factor, distance, turbulence_model)
     plt.show()
 
 
