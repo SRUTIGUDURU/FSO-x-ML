@@ -68,17 +68,12 @@ def attenuation(grid_size, attenuation_factor, r_max, distance, key):
     x = xp.linspace(-1, 1, grid_size) * r_max
     y = xp.linspace(-1, 1, grid_size) * r_max
     X, Y = xp.meshgrid(x, y)
-    radial_distance = xp.sqrt(X**2 + Y**2)
+    r = xp.sqrt(X**2 + Y**2) / r_max
 
-    # Exponential decay with distance
-    attenuation = xp.exp(-attenuation_factor *
-                         (radial_distance / r_max) ** 2 * distance)
-
-    # Generate JAX random values
-    key, subkey = jax_rand.split(key)
-    random_values = jax_rand.uniform(subkey, (grid_size, grid_size))
-
-    attenuation *= (0.8 + 0.2 * random_values)  # Stronger randomness
+    random_factor = 1 + 0.05 * \
+        jax.random.normal(key, shape=(grid_size, grid_size))
+    attenuation = jnp.exp(-attenuation_factor *
+                          distance * (r ** 2)) * random_factor
     return attenuation
 
 
@@ -149,13 +144,14 @@ def generate_and_save_data(l, grid_size, r_max, r0, attenuation_factor, distance
 
 
 def main():
-    l = 1  # OAM Mode
-    grid_size = 256  # Grid resolution
+    l = 2  # OAM Mode
+    grid_size = 1024  # Grid resolution
     r_max = 1  # Max radius
-    r0 = 0.1  # Fried parameter (turbulence strength)
-    attenuation_factor = 2.0  # Attenuation strength
-    distance = 2  # Distance in meters
-    turbulence_model = "von_karman"  # 'kolmogorov' or 'von_karman'
+    r0 = 0.02  # Fried parameter (turbulence strength)
+    attenuation_factor = 3  # Attenuation strength
+    distance = 10  # Distance in meters
+    turbulence_model = "kolmogorov"  # 'kolmogorov' or 'von_karman'
+    # turbulence_model = "von_karman"  # 'kolmogorov' or 'von_karman'
 
     generate_and_save_data(l, grid_size, r_max, r0,
                            attenuation_factor, distance, turbulence_model)
