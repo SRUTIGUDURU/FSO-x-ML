@@ -17,16 +17,15 @@ def simulate_oam(l, grid_size, r_max):
     return xp.exp(1j * l * phase)
 
 def kolmogorov_turbulence(grid_size, r0, distance, key, model="kolmogorov"):
-    """Generates a turbulence phase screen."""
-    k = xp.fft.fftfreq(grid_size, d=1.0)  # Changed to xp.fft
-    Kx, Ky = xp.meshgrid(k, k)
+    k = xp.fft.fftfreq(grid_size, d=1.0)
+    Kx, Ky = xp.meshgrid(k, k, indexing='ij')
     K = xp.sqrt(Kx**2 + Ky**2)
     K = xp.where(K == 0, 1e-10, K)
 
     if model == "kolmogorov":
         spectrum = (K ** (-11 / 3)) * xp.exp(- (K / (1 / r0)) ** 2)
     elif model == "von_karman":
-        L0 = 10  # Outer scale of turbulence
+        L0 = 10
         spectrum = (K ** (-11 / 3)) * xp.exp(- (K * L0) ** 2)
     else:
         raise ValueError("Invalid turbulence model.")
@@ -34,9 +33,8 @@ def kolmogorov_turbulence(grid_size, r0, distance, key, model="kolmogorov"):
     turbulence_strength = 0.1 * distance
 
     key, subkey = jax_rand.split(key)
-    random_values = jax_rand.uniform(subkey, (grid_size, grid_size))
-
-    random_phase = xp.exp(1j * 2 * xp.pi * random_values)
+    random_values = jax_rand.uniform(subkey, (grid_size, grid_size), minval=-xp.pi, maxval=xp.pi)
+    random_phase = xp.exp(1j * random_values)
     turbulence_screen = xp.fft.ifft2(xp.fft.ifftshift(xp.sqrt(spectrum) * random_phase)).real
 
     turbulence_screen /= xp.max(xp.abs(turbulence_screen))
@@ -105,7 +103,7 @@ def plot_field(field, r_max, title, cmap='hsv'):
     field_cpu = np.array(field)
 
     plt.figure(figsize=(6, 6))
-    plt.imshow(np.angle(field_cpu), extent=[-r_max, r_max, -r_max, r_max], cmap=cmap, interpolation='bicubic')
+    plt.imshow(np.angle(field_cpu), extent=[-r_max, r_max, -r_max, r_max], cmap='twilight', interpolation='bicubic')
     plt.title(title + " (Phase)")
     plt.colorbar(label="Phase (radians)")
     plt.xlabel("X")
