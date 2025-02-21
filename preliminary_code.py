@@ -5,16 +5,6 @@ import jax.numpy as jnp
 import jax.random as jax_rand
 import matplotlib.pyplot as plt
 
-try:
-    xp = jnp  # JAX for computations
-    random_generator = jax_rand  # JAX random functions
-    print("Using JAX for computations.")
-except ImportError:
-    xp = np  # Fallback to NumPy
-    random_generator = np.random
-    print("JAX not found. Falling back to NumPy.")
-
-
 xp = jnp  # JAX for computations
 random_generator = jax_rand  # JAX random functions
 
@@ -58,8 +48,10 @@ def kolmogorov_turbulence(grid_size, r0, distance, key, model="kolmogorov"):
     amplitude_variation = 1 + 0.3 * turbulence_screen
     return turbulence_screen, amplitude_variation
 
+
+
 def attenuation(grid_size, attenuation_factor, r_max, distance, key):
-    """Generates an improved attenuation mask with spatially correlated noise and better scaling."""
+    """Generates an improved attenuation mask with smoother spatial variations."""
     x = xp.linspace(-1, 1, grid_size) * r_max
     y = xp.linspace(-1, 1, grid_size) * r_max
     X, Y = xp.meshgrid(x, y)
@@ -68,29 +60,30 @@ def attenuation(grid_size, attenuation_factor, r_max, distance, key):
     # Base attenuation using an exponential decay function
     base_attenuation = xp.exp(-attenuation_factor * distance * (r ** 2.5))
 
-    # Generate spatially correlated noise for more realistic variation
+    # Generate spatially correlated noise for smoother variation
     key, subkey = jax_rand.split(key)
     noise = jax_rand.normal(subkey, (grid_size, grid_size))
     
-    # Apply a Gaussian filter in frequency domain to create smooth spatial variations
+    # Apply a Gaussian filter in frequency domain with a lower cutoff frequency
     kx = xp.fft.fftfreq(grid_size, d=1.0)
     ky = xp.fft.fftfreq(grid_size, d=1.0)
     KX, KY = xp.meshgrid(kx, ky)
     K = xp.sqrt(KX**2 + KY**2)
     K = xp.where(K == 0, 1e-10, K)  # Prevent division by zero
 
-    noise_spectrum = xp.fft.fft2(noise) * xp.exp(-0.02 * (K ** 2))  # Gaussian filter in frequency domain
+    noise_spectrum = xp.fft.fft2(noise) * xp.exp(-0.01 * (K ** 2))  # Smoother Gaussian filter
     correlated_noise = xp.real(xp.fft.ifft2(noise_spectrum))
 
     # Normalize and scale the noise
     correlated_noise /= xp.std(correlated_noise)
-    correlated_noise *= 0.1  # Control the strength of variations
+    correlated_noise *= 0.05  # Reduced strength for smoother attenuation variations
 
-    # Combine base attenuation with smooth noise variations
+    # Combine base attenuation with smoother noise variations
     attenuation_mask = base_attenuation * (1 + correlated_noise)
     attenuation_mask = xp.clip(attenuation_mask, 0, 1)  # Ensure values stay in [0,1] range
 
     return attenuation_mask
+
 
 
 def simulate_oam_toroid(l, grid_size, r_max, r_peak, width):
@@ -112,7 +105,7 @@ def plot_field(field, r_max, title, cmap='hsv'):
     field_cpu = np.array(field)
 
     plt.figure(figsize=(6, 6))
-    plt.imshow(np.angle(field_cpu), extent=[-r_max, r_max, -r_max, r_max], cmap=cmap)
+    plt.imshow(np.angle(field_cpu), extent=[-r_max, r_max, -r_max, r_max], cmap=cmap, interpolation='bicubic')
     plt.title(title + " (Phase)")
     plt.colorbar(label="Phase (radians)")
     plt.xlabel("X")
@@ -174,7 +167,7 @@ def generate_all_variations(l, grid_size, r_max, r0, attenuation_factor, distanc
     print(f"All data saved in '{save_path}' directory.")
 
 def main():
-    l, grid_size, r_max, r0, attenuation_factor, distance = 2, 512, 1, 0.02, 3, 10
+    l, grid_size, r_max, r0, attenuation_factor, distance = 2,2500, 1, 0.02, 3, 10
     r_peak, width = 0.5, 0.1
     turbulence_model = "kolmogorov"
     
