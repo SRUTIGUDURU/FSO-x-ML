@@ -99,9 +99,9 @@ def simulate_oam_toroid(l, grid_size, r_max, r_peak, width):
     return oam_field
 
 def plot_field(field, r_max, title, cmap='hsv'):
-    """Plots phase and intensity of the given complex field and keeps figures persistent."""
+    field = field.block_until_ready()
     field_cpu = np.array(field)
-
+    
     plt.figure(figsize=(6, 6))
     plt.imshow(np.angle(field_cpu), extent=[-r_max, r_max, -r_max, r_max], cmap='twilight', interpolation='bicubic')
     plt.title(title + " (Phase)")
@@ -111,7 +111,7 @@ def plot_field(field, r_max, title, cmap='hsv'):
     plt.draw()
 
     plt.figure(figsize=(6, 6))
-    plt.imshow(np.abs(field_cpu) ** 2, extent=[-r_max, r_max, -r_max, r_max], cmap='hot')
+    plt.imshow(np.abs(field_cpu) ** 2, extent=[-r_max, r_max, -r_max, r_max], cmap='hot', interpolation='bicubic')
     plt.title(title + " (Intensity)")
     plt.colorbar(label="Intensity")
     plt.xlabel("X")
