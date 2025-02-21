@@ -461,7 +461,7 @@ def main():
     logger.info(
         f"Created datasets: {len(train_dataset)} training, {len(val_dataset)} validation, {len(test_dataset)} test samples")
     print(f"Datasets created")
-    gnn, cnn = train_networks(train_loader, val_loader, device, num_epochs=4)
+    gnn, cnn = train_networks(train_loader, val_loader, device, num_epochs=50)
     torch.save(gnn.state_dict(), 'final_gnn_model.pth')
     torch.save(cnn.state_dict(), 'final_cnn_model.pth')
     logger.info("Saved final models")
