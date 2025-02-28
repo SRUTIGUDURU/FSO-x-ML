@@ -46,8 +46,6 @@ def kolmogorov_turbulence(grid_size, r0, distance, key, model="kolmogorov"):
     amplitude_variation = 1 + 0.3 * turbulence_screen
     return turbulence_screen, amplitude_variation
 
-
-
 def attenuation(grid_size, attenuation_factor, r_max, distance, key):
     """Generates an improved attenuation mask with smoother spatial variations."""
     x = xp.linspace(-1, 1, grid_size) * r_max
@@ -82,8 +80,6 @@ def attenuation(grid_size, attenuation_factor, r_max, distance, key):
 
     return attenuation_mask
 
-
-
 def simulate_oam_toroid(l, grid_size, r_max, r_peak, width):
     """Generates an OAM field with a toroidal intensity profile."""
     x = xp.linspace(-1, 1, grid_size) * r_max
@@ -98,9 +94,24 @@ def simulate_oam_toroid(l, grid_size, r_max, r_peak, width):
     oam_field = toroidal_envelope * xp.exp(1j * l * phase) * asymmetry_factor
     return oam_field
 
-def plot_field(field, r_max, title, cmap='hsv'):
+def plot_field(field, r_max, title, cmap='hsv', add_noise=False, noise_level=0.1, normalize_intensity=True):
+    """Plots the phase and intensity of a field, with optional noise and normalization."""
     field = field.block_until_ready()
     field_cpu = np.array(field)
+    
+    if add_noise:
+        # Add random noise to the phase
+        phase_noise = noise_level * np.random.uniform(-np.pi, np.pi, field_cpu.shape)
+        field_cpu = np.abs(field_cpu) * np.exp(1j * (np.angle(field_cpu) + phase_noise))
+        
+        # Add random noise to the intensity
+        intensity_noise = noise_level * np.random.normal(0, 1, field_cpu.shape)
+        field_cpu = (np.abs(field_cpu) + intensity_noise) * np.exp(1j * np.angle(field_cpu))
+    
+    if normalize_intensity:
+        intensity = np.abs(field_cpu) ** 2
+        intensity = (intensity - np.min(intensity)) / (np.max(intensity) - np.min(intensity))
+        field_cpu = np.sqrt(intensity) * np.exp(1j * np.angle(field_cpu))
     
     plt.figure(figsize=(6, 6))
     plt.imshow(np.angle(field_cpu), extent=[-r_max, r_max, -r_max, r_max], cmap='twilight', interpolation='bicubic')
@@ -127,32 +138,32 @@ def generate_all_variations(l, grid_size, r_max, r0, attenuation_factor, distanc
     
     print("Generating standard OAM field...")
     oam_sphere = simulate_oam(l, grid_size, r_max)
-    plot_field(oam_sphere, r_max, "Spherical OAM Mode")
+    plot_field(oam_sphere, r_max, "Spherical OAM Mode", add_noise=True, noise_level=0.1)
     
     print("Generating toroidal OAM field...")
     oam_toroid = simulate_oam_toroid(l, grid_size, r_max, r_peak, width)
-    plot_field(oam_toroid, r_max, "Toroidal OAM Mode")
+    plot_field(oam_toroid, r_max, "Toroidal OAM Mode", add_noise=True, noise_level=0.1)
     
     print("Generating turbulence...")
     turbulence_screen, amplitude_variation = kolmogorov_turbulence(grid_size, r0, distance, key, model=turbulence_model)
-    plot_field(xp.exp(1j * 2 * xp.pi * turbulence_screen), r_max, "Turbulence Phase")
+    plot_field(xp.exp(1j * 2 * xp.pi * turbulence_screen), r_max, "Turbulence Phase", add_noise=True, noise_level=0.1)
     
     print("Generating attenuation field...")
     attenuation_field = attenuation(grid_size, attenuation_factor, r_max, distance, key)
-    plot_field(attenuation_field, r_max, "Attenuation Field", cmap='gray')
+    plot_field(attenuation_field, r_max, "Attenuation Field", cmap='gray', add_noise=True, noise_level=0.1)
     
     print("Applying distortions...")
     turbulent_sphere = oam_sphere * xp.exp(1j * 2 * xp.pi * turbulence_screen) * amplitude_variation
     turbulent_toroid = oam_toroid * xp.exp(1j * 2 * xp.pi * turbulence_screen) * amplitude_variation
     
-    plot_field(turbulent_sphere, r_max, "Spherical OAM with Turbulence")
-    plot_field(turbulent_toroid, r_max, "Toroidal OAM with Turbulence")
+    plot_field(turbulent_sphere, r_max, "Spherical OAM with Turbulence", add_noise=True, noise_level=0.1)
+    plot_field(turbulent_toroid, r_max, "Toroidal OAM with Turbulence", add_noise=True, noise_level=0.1)
     
     attenuated_sphere = turbulent_sphere * attenuation_field
     attenuated_toroid = turbulent_toroid * attenuation_field
     
-    plot_field(attenuated_sphere, r_max, "Spherical OAM with Turbulence & Attenuation")
-    plot_field(attenuated_toroid, r_max, "Toroidal OAM with Turbulence & Attenuation")
+    plot_field(attenuated_sphere, r_max, "Spherical OAM with Turbulence & Attenuation", add_noise=True, noise_level=0.1)
+    plot_field(attenuated_toroid, r_max, "Toroidal OAM with Turbulence & Attenuation", add_noise=True, noise_level=0.1)
     
     np.savez_compressed(os.path.join(save_path, "oam_variations.npz"),
                         sphere_clean=np.abs(np.array(oam_sphere)),
@@ -165,7 +176,7 @@ def generate_all_variations(l, grid_size, r_max, r0, attenuation_factor, distanc
     print(f"All data saved in '{save_path}' directory.")
 
 def main():
-    l, grid_size, r_max, r0, attenuation_factor, distance = 2,2500, 1, 0.02, 3, 10
+    l, grid_size, r_max, r0, attenuation_factor, distance = 2, 2500, 1, 0.02, 3, 10
     r_peak, width = 0.5, 0.1
     turbulence_model = "kolmogorov"
     
