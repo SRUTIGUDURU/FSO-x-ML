@@ -2,3 +2,5 @@
 *.png
 *.log
 *.npz
+__pycache__
+datasets/
