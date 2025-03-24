@@ -30,7 +30,7 @@ class OAMGenerator:
 
     def setup_coordinate_grid(self):
         """Initialize coordinate grids for calculations."""
-        # Use higher resolution to avoid grid artifacts
+
         x = np.linspace(-1, 1, self.grid_size) * self.r_max
         y = np.linspace(-1, 1, self.grid_size) * self.r_max
         self.X, self.Y = np.meshgrid(x, y)
@@ -47,13 +47,11 @@ class OAMGenerator:
         Returns:
             np.ndarray: Complex-valued OAM mode field
         """
-        # Smooth profile to avoid grid artifacts
+
         R_norm = self.R / np.max(self.R)
 
-        # Smooth amplitude profile with better transition
         amplitude = (R_norm/w0) * np.exp(-R_norm**2/(2*w0**2))
 
-        # Apply anti-aliasing by smoothing the edges
         mask = np.ones_like(amplitude)
         mask[R_norm > 0.95] = 0
         edge_region = (R_norm > 0.85) & (R_norm <= 0.95)
@@ -64,6 +62,30 @@ class OAMGenerator:
         amplitude = amplitude / np.max(np.abs(amplitude))
         logger.info(f"Generated OAM mode with l={l}, w0={w0}")
         return amplitude * np.exp(1j * phase)
+
+    def generate_mode(self, l, w0=0.45, relative_amplitude=1.0):
+        """
+        Generate OAM pattern by superimposing modes with opposite charges.
+
+        Args:
+            l (int): Topological charge (positive integer)
+            w0 (float): Beam waist parameter
+            relative_amplitude (float): Relative amplitude between the two modes
+
+        Returns:
+            np.ndarray: Complex-valued field with structure
+        """
+        if l <= 0:
+            l = abs(l)
+
+        mode_plus = self.generate_oam_mode(l, w0)
+        mode_minus = self.generate_oam_mode(-l, w0) * relative_amplitude
+
+        mode = mode_plus + mode_minus
+
+        logger.info(
+            f"Generated mode with l={l}, creating {2*l} petals")
+        return mode
 
 
 class TurbulenceSimulator:
@@ -77,7 +99,7 @@ class TurbulenceSimulator:
         self.wavelength = wavelength
         self.propagation_distance = propagation_distance
         self.turbulence_strength = turbulence_strength
-        self.r_max = r_max  # Added parameter for angular spectrum method
+        self.r_max = r_max
         self.setup_frequency_grid()
         logger.info(
             f"Initialized Turbulence Simulator with r0={r0}, L0={L0}, l0={l0}, wavelength={wavelength}m, distance={propagation_distance}m, strength={turbulence_strength}")
@@ -93,7 +115,7 @@ class TurbulenceSimulator:
         k = np.fft.fftfreq(self.grid_size, delta_k)
         self.Kx, self.Ky = np.meshgrid(k, k)
         self.K = np.sqrt(self.Kx**2 + self.Ky**2)
-        # Avoid division by zero but use a smaller value
+
         self.K[self.K == 0] = 1e-12
         logger.info("Frequency grid setup complete")
 
@@ -102,31 +124,25 @@ class TurbulenceSimulator:
         k0 = 2*np.pi/self.L0
         km = 5.92/self.l0
 
-        # Enhanced spectrum for stronger turbulence effects
         spectrum = 0.023 * \
             self.r0**(-5/3) * (self.K**2 + k0**2)**(-11/6) * \
             np.exp(-(self.K**2)/(km**2))
         spectrum[self.K == 0] = 0
 
-        # Generate random phase with proper scaling
         random_phase = np.random.normal(size=(self.grid_size, self.grid_size)) + \
             1j * np.random.normal(size=(self.grid_size, self.grid_size))
 
-        # Apply FFT-based phase screen generation
         phase_screen = np.fft.ifft2(np.sqrt(spectrum) * random_phase)
         phase_screen = np.real(phase_screen)
 
-        # Apply additional high-frequency components to create more detail
         high_freq = np.random.normal(0, 0.5, (self.grid_size, self.grid_size))
         high_freq = np.fft.fft2(high_freq)
 
-        # Filter to keep only high frequencies
         high_mask = np.ones_like(self.K)
         high_mask[self.K < 0.3 * np.max(self.K)] = 0
         high_freq = high_freq * high_mask
         high_freq_phase = np.real(np.fft.ifft2(high_freq)) * 0.3
 
-        # Combine with main phase screen for enhanced detail
         phase_screen = phase_screen + high_freq_phase
         normalized_screen = phase_screen * self.turbulence_strength
 
@@ -149,25 +165,19 @@ class TurbulenceSimulator:
         if wavelength is None:
             wavelength = self.wavelength
 
-        # Get dimensions
         Ny, Nx = field.shape
 
-        # Calculate pixel size (assuming square grid)
         dx = 2.0 * self.r_max / self.grid_size
         dy = dx
 
-        # Spatial frequencies
         fx = np.fft.fftfreq(Nx, dx)
         fy = np.fft.fftfreq(Ny, dy)
         FX, FY = np.meshgrid(fx, fy)
 
-        # Calculate transfer function
-        # Handle evanescent waves by setting sqrt argument to 0 when negative
         sqrt_arg = (2*np.pi/wavelength)**2 - (FX**2 + FY**2)
         sqrt_arg[sqrt_arg < 0] = 0
         H = np.exp(1j * 2 * np.pi * z * np.sqrt(sqrt_arg))
 
-        # Fourier transform, multiply by transfer function, and inverse transform
         F_field = np.fft.fft2(field)
         F_propagated = F_field * H
         propagated_field = np.fft.ifft2(F_propagated)
@@ -178,7 +188,7 @@ class TurbulenceSimulator:
 class OAMDataset(Dataset):
     """Dataset class for OAM modes with distortions."""
 
-    def __init__(self, num_samples, grid_size=256, max_l=10, save_samples=False, dataset_type="train", turbulence_strength=1.5):
+    def __init__(self, num_samples, grid_size=256, max_l=10, save_samples=False, dataset_type="train", turbulence_strength=1.5, mode=True, petal_range=(5, 12)):
         self.generator = OAMGenerator(grid_size)
         self.turbulence = TurbulenceSimulator(
             grid_size, r0=0.05, turbulence_strength=turbulence_strength, r_max=self.generator.r_max)
@@ -190,8 +200,10 @@ class OAMDataset(Dataset):
         self.distorted_modes = []
         self.save_samples = save_samples
         self.dataset_type = dataset_type
+        self.mode = mode
+        self.petal_range = petal_range
         logger.info(
-            f"Creating {dataset_type} dataset with {num_samples} samples")
+            f"Creating {dataset_type} dataset with {num_samples} samples, mode={mode}")
         print(f"Creating {dataset_type} dataset")
         self.generate_dataset()
 
@@ -199,31 +211,33 @@ class OAMDataset(Dataset):
         """Generate dataset of OAM modes with propagation and turbulence effects."""
         os.makedirs('samples', exist_ok=True)
 
-        # Define propagation distances (in meters)
-        z1 = 1.0  # Distance from OAM generation to turbulence phase screen
-        z2 = 200.0  # Distance from turbulence phase screen to receiver
+        z1 = 1.0
+        z2 = 200.0
 
         for i in range(self.num_samples):
-            l = np.random.randint(-self.max_l, self.max_l + 1)
-            clean_mode = self.generator.generate_oam_mode(l)
+            if self.mode:
 
-            # First propagation (from OAM generation to turbulence screen)
+                l = np.random.randint(
+                    self.petal_range[0], self.petal_range[1] + 1)
+
+                clean_mode = self.generator.generate_mode(l, w0=0.45)
+            else:
+
+                l = np.random.randint(-self.max_l, self.max_l + 1)
+                clean_mode = self.generator.generate_oam_mode(l)
+
             field_at_screen = self.turbulence.angular_spectrum_propagation(
                 clean_mode, z1)
 
-            # Apply turbulence phase screen
             phase_screen = self.turbulence.generate_phase_screen()
             field_after_screen = field_at_screen * np.exp(1j * phase_screen)
 
-            # Second propagation (from turbulence screen to receiver)
             final_field = self.turbulence.angular_spectrum_propagation(
                 field_after_screen, z2)
 
-            # Calculate intensity (squared magnitude)
             clean_intensity = np.abs(clean_mode)**2
             distorted_intensity = np.abs(final_field)**2
 
-            # Normalize intensities for visualization and model input
             clean_amplitude = np.sqrt(clean_intensity)
             clean_amplitude = (clean_amplitude - np.min(clean_amplitude)) / \
                 (np.max(clean_amplitude) - np.min(clean_amplitude))
@@ -232,49 +246,47 @@ class OAMDataset(Dataset):
             distorted_amplitude = (distorted_amplitude - np.min(distorted_amplitude)) / \
                 (np.max(distorted_amplitude) - np.min(distorted_amplitude))
 
-            # Store phases for visualization
             clean_phase = np.angle(clean_mode)
             distorted_phase = np.angle(final_field)
 
             phase_stats = f"Phase min={np.min(distorted_phase):.2f}, max={np.max(distorted_phase):.2f}, std={np.std(distorted_phase):.2f}"
-            logger.info(f"Sample {i}, l={l}: {phase_stats}")
+            petal_info = f"petals={2*l}" if self.mode else f"l={l}"
+            logger.info(f"Sample {i}, {petal_info}: {phase_stats}")
+
+            label = 2 * l if self.mode else l
 
             self.data.append(distorted_amplitude)
-            self.labels.append(l + self.max_l)
+            self.labels.append(label)
 
-            # Rest of the visualization code remains the same
             if self.save_samples and i < 10:
                 self.clean_modes.append(clean_amplitude)
                 self.distorted_modes.append(distorted_amplitude)
 
-                # Create side-by-side visualization with shared colorbars
                 fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 
-                # Improved visualization with better titles and color normalization
                 norm_amp = Normalize(vmin=0, vmax=1)
 
-                # Clean mode
+                title_info = f'Mode ({2*l} petals)' if self.mode else f'OAM Mode l={l}'
+
                 im0 = axes[0, 0].imshow(
-                    clean_amplitude, cmap='viridis', norm=norm_amp)
+                    clean_amplitude, cmap='inferno', norm=norm_amp)
                 axes[0, 0].set_title(
-                    f'Clean OAM Mode l={l} (Amplitude)', fontsize=12)
+                    f'Clean {title_info} (Amplitude)', fontsize=12)
                 axes[0, 0].axis('off')
 
                 im1 = axes[0, 1].imshow(
                     clean_phase, cmap='hsv', vmin=-np.pi, vmax=np.pi)
                 axes[0, 1].set_title(
-                    f'Clean OAM Mode l={l} (Phase)', fontsize=12)
+                    f'Clean {title_info} (Phase)', fontsize=12)
                 axes[0, 1].axis('off')
 
-                # Add phase screen visualization
                 im_ps = axes[0, 2].imshow(
                     phase_screen, cmap='RdBu', vmin=-np.pi*2, vmax=np.pi*2)
                 axes[0, 2].set_title('Turbulence Phase Screen', fontsize=12)
                 axes[0, 2].axis('off')
 
-                # Distorted mode
                 im2 = axes[1, 0].imshow(
-                    distorted_amplitude, cmap='viridis', norm=norm_amp)
+                    distorted_amplitude, cmap='inferno', norm=norm_amp)
                 axes[1, 0].set_title('Turbulent Mode (Amplitude)', fontsize=12)
                 axes[1, 0].axis('off')
 
@@ -283,13 +295,11 @@ class OAMDataset(Dataset):
                 axes[1, 1].set_title('Turbulent Mode (Phase)', fontsize=12)
                 axes[1, 1].axis('off')
 
-                # Add difference visualization
                 diff = distorted_amplitude - clean_amplitude
                 im_diff = axes[1, 2].imshow(diff, cmap='RdBu', vmin=-1, vmax=1)
                 axes[1, 2].set_title('Amplitude Difference', fontsize=12)
                 axes[1, 2].axis('off')
 
-                # Add colorbars with better positioning
                 cbar_ax0 = fig.add_axes([0.02, 0.25, 0.01, 0.5])
                 cbar0 = fig.colorbar(im0, cax=cbar_ax0)
                 cbar0.set_label('Amplitude', fontsize=10)
@@ -302,21 +312,25 @@ class OAMDataset(Dataset):
                 cbar2 = fig.colorbar(im_ps, cax=cbar_ax2)
                 cbar2.set_label('Phase Distortion (rad)', fontsize=10)
 
-                fig = plt.gcf()  # Get current figure
+                fig = plt.gcf()
 
                 fig.suptitle(
-                    f'OAM Mode l={l} - Clean vs Turbulent Comparison', fontsize=14)
+                    f'{title_info} - Clean vs Turbulent Comparison', fontsize=14)
 
                 plt.subplots_adjust(left=0.05, right=0.95, top=0.90,
                                     bottom=0.05, wspace=0.2, hspace=0.2)
                 plt.subplots_adjust(wspace=0.05, hspace=0.1)
 
+                filename_prefix = 'petalled' if self.mode else 'oam'
                 plt.savefig(
-                    f'samples/{self.dataset_type}_sample_{i}_l_{l}.png', dpi=200, bbox_inches='tight')
+                    f'samples/{self.dataset_type}_{filename_prefix}_sample_{i}_{2*l if self.mode else "l_"+str(l)}.png',
+                    dpi=200, bbox_inches='tight')
                 plt.close()
 
+        mode_type = "modes" if self.mode else "OAM modes"
+        label_info = f"petal counts from {self.petal_range[0]*2} to {self.petal_range[1]*2}" if self.mode else f"l values from {-self.max_l} to {self.max_l}"
         logger.info(
-            f"Generated {len(self.data)} samples with l values from {-self.max_l} to {self.max_l}")
+            f"Generated {len(self.data)} samples with {mode_type} - {label_info}")
         print(f"Dataset generation complete")
 
     def __len__(self):
@@ -331,7 +345,9 @@ class OAMDataset(Dataset):
             'data': self.data,
             'labels': self.labels,
             'max_l': self.max_l,
-            'dataset_type': self.dataset_type
+            'dataset_type': self.dataset_type,
+            'mode': self.mode,
+            'petal_range': self.petal_range if self.mode else None
         }
         with open(filename, 'wb') as f:
             pickle.dump(data_dict, f)
@@ -344,22 +360,23 @@ def main():
     np.random.seed(42)
     os.makedirs('datasets', exist_ok=True)
 
-    # Generate training dataset with increased turbulence strength
     train_dataset = OAMDataset(
         num_samples=500, save_samples=True, dataset_type="train",
-        grid_size=256, turbulence_strength=2.0)
+        grid_size=256, turbulence_strength=2.0,
+
+        mode=True, petal_range=(5, 12))
     train_dataset.save_to_file('datasets/train_dataset.pkl')
 
-    # Generate validation dataset
     val_dataset = OAMDataset(
         num_samples=100, dataset_type="val",
-        grid_size=256, turbulence_strength=2.0)
+        grid_size=256, turbulence_strength=2.0,
+        mode=True, petal_range=(5, 12))
     val_dataset.save_to_file('datasets/val_dataset.pkl')
 
-    # Generate test dataset
     test_dataset = OAMDataset(
         num_samples=50, dataset_type="test",
-        grid_size=256, turbulence_strength=2.0)
+        grid_size=256, turbulence_strength=2.0,
+        mode=True, petal_range=(5, 12))
     test_dataset.save_to_file('datasets/test_dataset.pkl')
 
     logger.info("All datasets generated and saved successfully")
