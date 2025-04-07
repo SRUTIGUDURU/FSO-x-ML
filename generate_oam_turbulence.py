@@ -8,6 +8,13 @@ from torch.utils.data import Dataset
 import pickle
 from matplotlib.colors import Normalize
 
+# Control NumPy and OpenMP threading
+os.environ['MKL_THREADING_LAYER'] = 'GNU'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -188,7 +195,7 @@ class TurbulenceSimulator:
 class OAMDataset(Dataset):
     """Dataset class for OAM modes with distortions."""
 
-    def __init__(self, num_samples, grid_size=256, max_l=10, save_samples=False, dataset_type="train", turbulence_strength=1.5, mode=True, petal_range=(5, 12)):
+    def __init__(self, num_samples, grid_size=256, max_l=10, save_samples=False, dataset_type="train", turbulence_strength=1.5, mode=True, petal_range=(5, 12), mask_quadrants=False):
         self.generator = OAMGenerator(grid_size)
         self.turbulence = TurbulenceSimulator(
             grid_size, r0=0.05, turbulence_strength=turbulence_strength, r_max=self.generator.r_max)
@@ -202,8 +209,9 @@ class OAMDataset(Dataset):
         self.dataset_type = dataset_type
         self.mode = mode
         self.petal_range = petal_range
+        self.mask_quadrants = mask_quadrants
         logger.info(
-            f"Creating {dataset_type} dataset with {num_samples} samples, mode={mode}")
+            f"Creating {dataset_type} dataset with {num_samples} samples, mode={mode}, mask_quadrants={mask_quadrants}")
         print(f"Creating {dataset_type} dataset")
         self.generate_dataset()
 
@@ -248,6 +256,9 @@ class OAMDataset(Dataset):
 
             clean_phase = np.angle(clean_mode)
             distorted_phase = np.angle(final_field)
+
+            if self.mask_quadrants:
+                distorted_amplitude = self.mask_quadrant(distorted_amplitude)
 
             phase_stats = f"Phase min={np.min(distorted_phase):.2f}, max={np.max(distorted_phase):.2f}, std={np.std(distorted_phase):.2f}"
             petal_info = f"petals={2*l}" if self.mode else f"l={l}"
@@ -347,40 +358,70 @@ class OAMDataset(Dataset):
             'max_l': self.max_l,
             'dataset_type': self.dataset_type,
             'mode': self.mode,
-            'petal_range': self.petal_range if self.mode else None
+            'petal_range': self.petal_range if self.mode else None,
+            'distorted_phases': self.distorted_modes if hasattr(self, 'distorted_modes') else None
         }
         with open(filename, 'wb') as f:
             pickle.dump(data_dict, f)
         logger.info(f"Dataset saved to {filename}")
         print(f"Dataset saved to {filename}")
 
+    def mask_quadrant(self, data):
+        """Randomly masks one or more quadrants of the input data."""
+        size = data.shape[0]
+        mask = np.ones_like(data)
+        quadrants = np.random.randint(0, 4, size=np.random.randint(1, 5)) # mask 1-4 quadrants
+
+        for quadrant in quadrants:
+            if quadrant == 0:
+                mask[:size//2, :size//2] = 0
+            elif quadrant == 1:
+                mask[:size//2, size//2:] = 0
+            elif quadrant == 2:
+                mask[size//2:, :size//2] = 0
+            elif quadrant == 3:
+                mask[size//2:, size//2:] = 0
+
+        return data * mask
+
 
 def main():
     """Generate and save datasets for training, validation and testing."""
-    np.random.seed(42)
-    os.makedirs('datasets', exist_ok=True)
+    try:
+        np.random.seed(42)
+        os.makedirs('datasets', exist_ok=True)
+        os.makedirs('samples', exist_ok=True)
 
-    train_dataset = OAMDataset(
-        num_samples=500, save_samples=True, dataset_type="train",
-        grid_size=256, turbulence_strength=2.0,
+        # Generate smaller test sets for demonstration
+        train_dataset = OAMDataset(
+            num_samples=10, save_samples=True, dataset_type="train",
+            grid_size=256, turbulence_strength=2.0,
+            mode=True, petal_range=(5, 12), mask_quadrants=True)
+        train_dataset.save_to_file('datasets/train_dataset.pkl')
 
-        mode=True, petal_range=(5, 12))
-    train_dataset.save_to_file('datasets/train_dataset.pkl')
+        val_dataset = OAMDataset(
+            num_samples=5, dataset_type="val",
+            grid_size=256, turbulence_strength=2.0,
+            mode=True, petal_range=(5, 12), mask_quadrants=True)
+        val_dataset.save_to_file('datasets/val_dataset.pkl')
 
-    val_dataset = OAMDataset(
-        num_samples=100, dataset_type="val",
-        grid_size=256, turbulence_strength=2.0,
-        mode=True, petal_range=(5, 12))
-    val_dataset.save_to_file('datasets/val_dataset.pkl')
+        test_dataset = OAMDataset(
+            num_samples=3, dataset_type="test",
+            grid_size=256, turbulence_strength=2.0,
+            mode=True, petal_range=(5, 12), mask_quadrants=True)
+        test_dataset.save_to_file('datasets/test_dataset.pkl')
 
-    test_dataset = OAMDataset(
-        num_samples=50, dataset_type="test",
-        grid_size=256, turbulence_strength=2.0,
-        mode=True, petal_range=(5, 12))
-    test_dataset.save_to_file('datasets/test_dataset.pkl')
+        logger.info("All datasets generated and saved successfully")
+        print("All datasets generated and saved successfully")
+        
+    except Exception as e:
+        logger.error(f"Error generating datasets: {str(e)}")
+        print(f"Error: {str(e)}")
+        raise
 
-    logger.info("All datasets generated and saved successfully")
-    print("All datasets generated and saved successfully")
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
